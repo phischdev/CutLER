@@ -78,7 +78,7 @@ def get_masked_affinity_matrix(painting, feats, mask, ps):
     feats = ((1 - painting) * feats).view(dim, num_patch)
     return feats, painting
 
-def maskcut_forward(feats, dims, scales, init_image_size, tau=0, N=3, cpu=False):
+def maskcut_forward(feats, dims, scales, init_image_size, tau=0, N=3, backend='cpu'):
     """
     Implementation of MaskCut.
     Inputs
@@ -95,7 +95,7 @@ def maskcut_forward(feats, dims, scales, init_image_size, tau=0, N=3, cpu=False)
     for i in range(N):
         if i == 0:
             painting = torch.from_numpy(np.zeros(dims))
-            if not cpu: painting = painting.cuda()
+            painting = painting.to(backend)
         else:
             feats, painting = get_masked_affinity_matrix(painting, feats, current_mask, ps)
 
@@ -128,8 +128,7 @@ def maskcut_forward(feats, dims, scales, init_image_size, tau=0, N=3, cpu=False)
         _, _, _, cc = detect_box(bipartition, seed, dims, scales=scales, initial_im_size=init_image_size)
         pseudo_mask = np.zeros(dims)
         pseudo_mask[cc[0],cc[1]] = 1
-        pseudo_mask = torch.from_numpy(pseudo_mask)
-        if not cpu: pseudo_mask = pseudo_mask.to('cuda')
+        pseudo_mask = torch.from_numpy(pseudo_mask).to(backend)
         ps = pseudo_mask.shape[0]
 
         # check if the extra mask is heavily overlapped with the previous one or is too small.
@@ -137,8 +136,7 @@ def maskcut_forward(feats, dims, scales, init_image_size, tau=0, N=3, cpu=False)
             ratio = torch.sum(pseudo_mask) / pseudo_mask.size()[0] / pseudo_mask.size()[1]
             if metric.IoU(current_mask, pseudo_mask) > 0.5 or ratio <= 0.01:
                 pseudo_mask = np.zeros(dims)
-                pseudo_mask = torch.from_numpy(pseudo_mask)
-                if not cpu: pseudo_mask = pseudo_mask.to('cuda')
+                pseudo_mask = torch.from_numpy(pseudo_mask).to(backend)
         current_mask = pseudo_mask
 
         # mask out foreground areas in previous stages
@@ -150,8 +148,8 @@ def maskcut_forward(feats, dims, scales, init_image_size, tau=0, N=3, cpu=False)
 
         # unsample the eigenvec
         eigvec = second_smallest_vec.reshape(dims)
-        eigvec = torch.from_numpy(eigvec)
-        if not cpu: eigvec = eigvec.to('cuda')
+        eigvec = torch.from_numpy(eigvec).to(backend)
+
         eigvec = F.interpolate(eigvec.unsqueeze(0).unsqueeze(0), size=init_image_size, mode='nearest').squeeze()
         eigvecs.append(eigvec.cpu().numpy())
 
@@ -168,7 +166,7 @@ def maskcut(img_path, backbone,patch_size, tau, N=1, fixed_size=480, cpu=False) 
     if not cpu: tensor = tensor.cuda()
     feat = backbone(tensor)[0]
 
-    _, bipartition, eigvec = maskcut_forward(feat, [feat_h, feat_w], [patch_size, patch_size], [h,w], tau, N=N, cpu=cpu)
+    _, bipartition, eigvec = maskcut_forward(feat, [feat_h, feat_w], [patch_size, patch_size], [h,w], tau, N=N, backend=cpu)
 
     bipartitions += bipartition
     eigvecs += eigvec
